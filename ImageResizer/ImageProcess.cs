@@ -1,9 +1,11 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace ImageResizer
@@ -37,17 +39,19 @@ namespace ImageResizer
         /// <param name="sourcePath">圖片來源目錄路徑</param>
         /// <param name="destPath">產生圖片目的目錄路徑</param>
         /// <param name="scale">縮放比例</param>
-        public Task ResizeImagesAsync(string sourcePath, string destPath, double scale)
+        /// <param name="progress">工作進度回報</param>
+        /// <param name="token">取消權杖</param>
+        public Task ResizeImagesAsync(string sourcePath, string destPath, double scale, IProgress<int> progress, CancellationToken token = default)
         {
             var tasks = FindImages(sourcePath)
                 .AsParallel()
-                .Select(filePath => ResizeImageAsync(filePath, destPath, scale))
+                .Select((filePath, index) => ResizeImageAsync(index, filePath, destPath, scale, progress, token))
                 .ToArray();
 
             return Task.WhenAll(tasks);
         }
 
-        private async Task ResizeImageAsync(string filePath, string destPath, double scale)
+        private async Task ResizeImageAsync(int index, string filePath, string destPath, double scale, IProgress<int> progress, CancellationToken token = default)
         {
             var imgPhoto = Image.FromFile(filePath);
             var imgName = Path.GetFileNameWithoutExtension(filePath);
@@ -58,14 +62,20 @@ namespace ImageResizer
             var destionatonWidth = (int)(sourceWidth * scale);
             var destionatonHeight = (int)(sourceHeight * scale);
 
+            if (token.IsCancellationRequested)
+            {
+                return;
+            }
+
             var processedImage =
                 await Task.Run(() => processBitmap(
                     (Bitmap)imgPhoto,
                     sourceWidth, sourceHeight,
-                    destionatonWidth, destionatonHeight));
+                    destionatonWidth, destionatonHeight), token);
 
             var destFile = Path.Combine(destPath, imgName + ".jpg");
             processedImage.Save(destFile, ImageFormat.Jpeg);
+            progress.Report(index);
         }
 
         /// <summary>
